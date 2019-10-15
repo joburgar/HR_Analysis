@@ -125,13 +125,13 @@ plot(HR.sp.AS, pch = 1, size = 0.5, add = TRUE)     # Add points
 # add in meta-data and then export shapefiles
 colnames(ver95.sf)[1] <- "Animal_Season"
 ver95.sf <- dplyr::left_join(ver95.sf, 
-                             HR.df[c("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")], 
-                             by = "Animal_Season") 
+                             unique(HR.df %>% dplyr::select("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")), 
+                             by = "Animal_Season")
 ver95.sf$HR_Type <- "KDE_95"
 
 colnames(ver50.sf)[1] <- "Animal_Season"
 ver50.sf <- dplyr::left_join(ver50.sf, 
-                             HR.df[c("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")], 
+                             unique(HR.df %>% dplyr::select("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")), 
                              by = "Animal_Season") 
 ver50.sf$HR_Type <- "KDE_50"
 
@@ -176,13 +176,13 @@ plot(HR.sp.AY, pch = 1, size = 0.5, add = TRUE)     # Add points
 # add in meta-data and then export shapefiles
 colnames(ver95.sf)[1] <- "Animal_Year"
 ver95.sf <- dplyr::left_join(ver95.sf, 
-                             HR.df[c("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")], 
+                             unique(HR.df %>% dplyr::select("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")), 
                              by = "Animal_Year") 
 ver95.sf$HR_Type <- "KDE_95"
 
 colnames(ver50.sf)[1] <- "Animal_Year"
 ver50.sf <- dplyr::left_join(ver50.sf, 
-                             HR.df[c("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")], 
+                             unique(HR.df %>% dplyr::select("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")), 
                              by = "Animal_Year") 
 ver50.sf$HR_Type <- "KDE_50"
 
@@ -218,13 +218,13 @@ KDE.function <- function(data, HR_group, hvalue, grid, extent){
   
   colnames(ver95.2.sf)[1] <- HR_group
   ver95.2.sf <- dplyr::left_join(ver95.2.sf, 
-                                 HR.df[c(HR_group,"AnimalID","Group.New","Season","Year","Species","Sex", "Age_Class")], 
+                                 unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Group.New","Season","Year","Species","Sex", "Age_Class")), 
                                  by = HR_group) 
   ver95.sf$HR_Type <- "KDE_95"
   
   colnames(ver50.2.sf)[1] <- HR_group
   ver50.2.sf <- dplyr::left_join(ver50.2.sf, 
-                                 HR.df[c(HR_group,"AnimalID","Group.New","Season","Year","Species","Sex", "Age_Class")], 
+                                 unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Group.New","Season","Year","Species","Sex", "Age_Class")), 
                                  by = HR_group) 
   ver50.sf$HR_Type <- "KDE_50"
   
