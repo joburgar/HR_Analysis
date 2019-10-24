@@ -211,28 +211,75 @@ rm(kde1.AS, kde1.AY)
 # grid = user defined grid value; e.g., 500
 # extent = user defined extent value; e.g., 2
 
+# for each animal 
 KDE.function <- function(data, HR_group, hvalue, grid, extent){
   kde <- kernelUD(data[c(HR_group)], h = hvalue, kern = c("bivnorm"), grid = grid, extent = extent)
-  ver95.2 <- getverticeshr(kde,95) ;   ver95.2.sf<- st_as_sf(ver95.2)
-  ver50.2 <- getverticeshr(kde,50) ;   ver50.2.sf<- st_as_sf(ver50.2)
+  ver95 <- getverticeshr(kde,95) ;   ver95.sf<- st_as_sf(ver95)
+  ver50 <- getverticeshr(kde,50) ;   ver50.sf<- st_as_sf(ver50)
   
-  colnames(ver95.2.sf)[1] <- HR_group
-  ver95.2.sf <- dplyr::left_join(ver95.2.sf, 
-                                 unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Group.New","Season","Year","Species","Sex", "Age_Class")), 
-                                 by = HR_group) 
+  colnames(ver95.sf)[1] <- HR_group
+  ver95.sf <- dplyr::left_join(ver95.sf, 
+                               unique(HR.df %>% dplyr::select(HR_group,"Collar","Sex", "Age_Class")), 
+                               by = HR_group) 
   ver95.sf$HR_Type <- "KDE_95"
   
-  colnames(ver50.2.sf)[1] <- HR_group
-  ver50.2.sf <- dplyr::left_join(ver50.2.sf, 
-                                 unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Group.New","Season","Year","Species","Sex", "Age_Class")), 
-                                 by = HR_group) 
+  colnames(ver50.sf)[1] <- HR_group
+  ver50.sf <- dplyr::left_join(ver50.sf, 
+                               unique(HR.df %>% dplyr::select(HR_group,"Collar","Sex", "Age_Class")), 
+                               by = HR_group) 
   ver50.sf$HR_Type <- "KDE_50"
   
-  ver.sf <- rbind(ver50.2.sf,ver95.2.sf)
+  ver.sf <- rbind(ver50.sf,ver95.sf)
   
   st_write(ver.sf, paste("KDE_",HR_group,"_h", hvalue,".shp", sep=""))}
 
-###--- end of function
+# for each animal-year
+KDE.function.Yr <- function(data, HR_group, hvalue, grid, extent){
+  kde <- kernelUD(data[c(HR_group)], h = hvalue, kern = c("bivnorm"), grid = grid, extent = extent)
+  ver95 <- getverticeshr(kde,95) ;   ver95.sf<- st_as_sf(ver95)
+  ver50 <- getverticeshr(kde,50) ;   ver50.sf<- st_as_sf(ver50)
+  
+  colnames(ver95.sf)[1] <- HR_group
+  ver95.sf <- dplyr::left_join(ver95.sf, 
+                                 unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Collar","Year","Sex", "Age_Class")), 
+                                 by = HR_group) 
+  ver95.sf$HR_Type <- "KDE_95"
+  
+  colnames(ver50.sf)[1] <- HR_group
+  ver50.sf <- dplyr::left_join(ver50.sf, 
+                                 unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Collar","Year","Sex", "Age_Class")), 
+                                 by = HR_group) 
+  ver50.sf$HR_Type <- "KDE_50"
+  
+  ver.sf <- rbind(ver50.sf,ver95.sf)
+  
+  st_write(ver.sf, paste("KDE_",HR_group,"_h", hvalue,".shp", sep=""))}
+
+# for each animal-season
+KDE.function.Sn <- function(data, HR_group, hvalue, grid, extent){
+  kde <- kernelUD(data[c(HR_group)], h = hvalue, kern = c("bivnorm"), grid = grid, extent = extent)
+  ver95 <- getverticeshr(kde,95) ;   ver95.sf<- st_as_sf(ver95)
+  ver50 <- getverticeshr(kde,50) ;   ver50.sf<- st_as_sf(ver50)
+  
+  colnames(ver95.sf)[1] <- HR_group
+  ver95.sf <- dplyr::left_join(ver95.sf, 
+                               unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Collar","Season","Sex", "Age_Class")), 
+                               by = HR_group) 
+  ver95.sf$HR_Type <- "KDE_95"
+  
+  colnames(ver50.sf)[1] <- HR_group
+  ver50.sf <- dplyr::left_join(ver50.sf, 
+                               unique(HR.df %>% dplyr::select(HR_group,"AnimalID","Collar","Season","Sex", "Age_Class")), 
+                               by = HR_group) 
+  ver50.sf$HR_Type <- "KDE_50"
+  
+  ver.sf <- rbind(ver50.sf,ver95.sf)
+  
+  st_write(ver.sf, paste("KDE_",HR_group,"_h", hvalue,".shp", sep=""))}
+
+###--- end of functions
+
+
 
 ###################################################################
 
@@ -242,13 +289,13 @@ KDE.function <- function(data, HR_group, hvalue, grid, extent){
 
 setwd(GISDir)
 
-AS_h1000 <- KDE.function(data = HR.sp.AS, HR_group = "Animal_Season", hvalue = 1000, grid =500, extent = 5)
+AS_h1000 <- KDE.function.Sn(data = HR.sp.AS, HR_group = "Animal_Season", hvalue = 1000, grid =500, extent = 5)
 
-AY_h1000 <- KDE.function(data = HR.sp.AY, HR_group = "Animal_Year", hvalue = 1000, grid =500, extent = 5)
+AY_h1000 <- KDE.function.Yr(data = HR.sp.AY, HR_group = "Animal_Year", hvalue = 1000, grid =500, extent = 5)
 
-AS_h2000 <- KDE.function(data = HR.sp.AS, HR_group = "Animal_Season", hvalue = 2000, grid =500, extent = 5)
+AS_h2000 <- KDE.function.Sn(data = HR.sp.AS, HR_group = "Animal_Season", hvalue = 2000, grid =500, extent = 5)
 
-AY_h2000 <- KDE.function(data = HR.sp.AY, HR_group = "Animal_Year", hvalue = 2000, grid =500, extent = 5)
+AY_h2000 <- KDE.function.Yr(data = HR.sp.AY, HR_group = "Animal_Year", hvalue = 2000, grid =500, extent = 5)
 
 ###################################################################
 #### RUN USER DEFINED KDE MODELS (END)
