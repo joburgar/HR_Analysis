@@ -21,7 +21,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 .libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
 tz = Sys.timezone() # specify timezone in BC
 
-GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar/MMP"
+GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar"
 
 # overall process: 
 #- Upload Animal metadata and collar metadata (if applicable)
@@ -34,19 +34,28 @@ library(tidyverse)  # for plotting, data manipulation, formatting character data
 library(lubridate)  # for date-time conversions
 library(sf)         # for uploading shapefiles and working with sf objects
 library(bcdata); library(bcmaps)
+library(units)
 
+# source function
+###--- function to retrieve geodata from BCGW
+
+retrieve_geodata_aoi <- function (ID=ID){
+  aoi.geodata <- bcdc_query_geodata(ID) %>%
+    filter(BBOX(st_bbox(aoi))) %>%
+    collect()
+  aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
+  aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
+  aoi.geodata <- drop_units(aoi.geodata)
+  return(aoi.geodata)
+}
 
 ##############################################################
 #### METADATA EXPLORATION & FORMATTING (BEGINNING) 
 #############################################################
-list.files()
 
 ###--- upload animal and collar metadatda files
 anml.full <- read.csv("Input/PEPE_Metadata.csv", # point to appropriate metadata file
                      header = TRUE, stringsAsFactors = TRUE, na.strings=c("", "NA"),)
-
-glimpse(anml.full) # view data
-head(anml.full)
 
 # # subset to smaller dataframe, and rename columns for consistency
 names(anml.full)
@@ -70,11 +79,17 @@ anml %>% group_by(Cptr_Year, Species) %>% summarise(min(Cptr_Datep), max(Cptr_Da
 # may need to clean some data during the import
 Cpt.sf <- st_as_sf(anml, coords=c("Cptr_Easting","Cptr_Northing"), crs=26910)
 
+# create a 100 km2 buffer around capture locations as study area
+Cpt.sf.buff <- Cpt.sf %>% summarise( geometry = st_combine( geometry ) ) %>% 
+  st_convex_hull() %>% st_buffer(dist=100000)
+aoi <- Cpt.sf.buff
+
 # plot to check
 bc <- bc_bound()
 
 ggplot() +
   geom_sf(data = bc) +
+  geom_sf(data = Cpt.sf.buff)+
   geom_sf(data = Cpt.sf, aes(fill=Species, col=Species)) +
   coord_sf() +
   theme_minimal()
@@ -92,9 +107,45 @@ ggplot() +
   theme_minimal()
 
 
+MMP_BCGov <- st_read(dsn=paste0(GISDir,"/MMP"), layer="MMP_BCGov_grid_March2024") 
 
+ggplot() +
+  geom_sf(data = bc) +
+  geom_sf(data=MMP_BCGov) +
+  geom_sf(data=Cpt.sf, aes(col=Species))
 
-MMP_BCGov <- st_read(dsn=GISDir, layer="MMP_BCGov_grid_March2024") 
+# FHE <- st_read(dsn=paste0(GISDir,"/Fisher"), layer="FHE_two_pops")
+# FHE <- st_simplify(FHE)
+# FCol <- FHE %>% filter(Hab_zone!="Boreal")
+# Created a list of traplines that intersect the Columbian fisher range
+# bcdc_search("trapline", res_format = "wms")
+# traplines <- bcdc_query_geodata("f8e27889-fb07-4f9d-b2ba-591578274b7c") %>% collect()
+# Col.trapline <- traplines %>% st_intersection(FCol)
+# write.csv(Col.trapline %>% select(TRAPLINE_AREA_IDENTIFIER) %>% st_drop_geometry, file="./Traplines_ColRange.csv", row.names = FALSE)
+
+# using the bc data warehouse option to clip to aoi
+aoi <- aoi %>% st_transform(3005)
+
+# biogeoclimatic zones
+# bcdc_search("Biogeoclimatic zone", res_format = "wms")
+aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
+aoi.BEC %>% group_by(ZONE) %>% summarise(sum(Area_km2)) %>% st_drop_geometry()
+
+# approved WHAs & UWRs (GAR Orders)
+# bcdc_search("WHA", res_format = "wms")
+aoi.WHA <- retrieve_geodata_aoi(ID = "b19ff409-ef71-4476-924e-b3bcf26a0127")
+aoi.WHA %>% group_by(COMMON_SPECIES_NAME) %>% summarise(sum(Area_km2)) %>% st_drop_geometry()
+
+# bcdc_search("UWR", res_format = "wms")
+aoi.UWR <- retrieve_geodata_aoi(ID = "712bd887-7763-4ed3-be46-cdaca5640cc1")
+aoi.UWR %>% group_by(SPECIES_1) %>% summarise(sum(Area_km2)) %>% st_drop_geometry()
+
+# bcdc_search("Forest District", res_format = "wms")
+# 2: Natural Resource (NR) Districts (multiple, wms, oracle_sde)
+# ID: 0bc73892-e41f-41d0-8d8e-828c16139337
+# Name: natural-resource-nr-district
+aoi.NRD <- retrieve_geodata_aoi(ID = "0bc73892-e41f-41d0-8d8e-828c16139337")
+aoi.NRD %>% group_by(DISTRICT_NAME) %>% summarise(sum(Area_km2)) %>% st_drop_geometry()
 
 ##############################################################
 #### METADATA EXPLORATION & FORMATTING (END) 
