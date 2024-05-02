@@ -1,57 +1,66 @@
 #####################################################################################
 # 00_TelemDataPrep.R
 # script to prepare telemetry data for running home range analyses
-# written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 04-Oct-2019
+# written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - Updated 2-May-2024
 #####################################################################################
-.libPaths("C:/Program Files/R/R-3.6.0/library") # to ensure reading/writing libraries from C drive (H drive too slow)
+# Copyright 2021 Province of British Columbia
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
+#####################################################################################
+
+R_version <- paste0("R-",version$major,".",version$minor)
+
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
+tz = Sys.timezone() # specify timezone in BC
+
+GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar/MMP"
 
 # overall process: 
 #- Upload Animal metadata and collar metadata (if applicable)
 #- Upload shapefiles or csv of telemetry data
-#- written for example of Barred Owl (BDOW) data
+#- modified for fisher GPS collar data
 #- Output R object ready for home range analyses (MCP & KDE) 
 
 # run libraries
-library(ggplot2)    # for plotting
-library(dplyr)      # for data manipulation
-library(stringr)    # for formatting character data
+library(tidyverse)  # for plotting, data manipulation, formatting character data
 library(lubridate)  # for date-time conversions
 library(sf)         # for uploading shapefiles and working with sf objects
+library(bcdata); library(bcmaps)
 
-# set up working directories on H drive - map/revise as appropriate
-InputDir <- c("H:/R/Analysis/Generic_HomeRange/Input")
-OutputDir <- c("H:/R/Analysis/Generic_HomeRange/Output")
-GISDir <- c("H:/R/Analysis/Generic_HomeRange/GISDir")
 
 ##############################################################
 #### METADATA EXPLORATION & FORMATTING (BEGINNING) 
 #############################################################
-## load data into R
-setwd(InputDir)
+list.files()
 
 ###--- upload animal and collar metadatda files
-anml.full <- read.csv("BDOW_metadata.csv", # point to appropriate metadata file
+anml.full <- read.csv("Input/PEPE_Metadata.csv", # point to appropriate metadata file
                      header = TRUE, stringsAsFactors = TRUE, na.strings=c("", "NA"),)
 
 glimpse(anml.full) # view data
 head(anml.full)
 
-# subset to smaller dataframe, and rename columns for consistency
+# # subset to smaller dataframe, and rename columns for consistency
 names(anml.full)
 anml <- anml.full[c(1:8)] # if not in the suggested order, re-order to reflect order of colnames below
-head(anml)  
 colnames(anml) <-  c("AnimalID","Species","Sex", "Age_Class","Cptr_Northing","Cptr_Easting", "Cptr_Date","Rls_Date")
 head(anml)  # check
 
 # format dates for R
-anml$Cptr_Datep <- as.POSIXct(strptime(anml$Cptr_Date, format = "%Y%m%d"))
-anml$Rls_Datep <- as.POSIXct(strptime(anml$Rls_Date, format = "%Y%m%d"))
+anml$Cptr_Datep <- as.POSIXct(strptime(anml$Cptr_Date, format = "%d-%b-%y"))
+anml$Rls_Datep <- as.POSIXct(strptime(anml$Rls_Date, format = "%d-%b-%y"))
 
 # add in Year
 anml$Cptr_Year <- year(anml$Cptr_Datep)
-
 glimpse(anml) # check dates
-summary(anml) # check for NAs
 
 ###--- Check  data for number of captures per year by species, sex and min/max annual capture dates
 anml %>% group_by(Cptr_Year, Species) %>% count(Sex)
@@ -59,24 +68,33 @@ anml %>% group_by(Cptr_Year, Species) %>% summarise(min(Cptr_Datep), max(Cptr_Da
 
 ###--- to turn the capture points into spatial object, using the CRS for NAD83 UTM Zone 10
 # may need to clean some data during the import
-# in this example, issue with one of the coordinates, delete that row from df before converting to sf object
-Cpt.sf <- st_as_sf(anml[anml$Cptr_Northing > 5500000,], coords=c("Cptr_Easting","Cptr_Northing"), crs=26910)
+Cpt.sf <- st_as_sf(anml, coords=c("Cptr_Easting","Cptr_Northing"), crs=26910)
 
 # plot to check
+bc <- bc_bound()
+
 ggplot() +
+  geom_sf(data = bc) +
   geom_sf(data = Cpt.sf, aes(fill=Species, col=Species)) +
   coord_sf() +
   theme_minimal()
 
 ggplot() +
+  geom_sf(data = bc) +
   geom_sf(data = Cpt.sf, aes(fill=as.factor(Cptr_Year), col=as.factor(Cptr_Year))) +
   coord_sf() +
   theme_minimal()
 
 ggplot() +
+  geom_sf(data = bc) +
   geom_sf(data = Cpt.sf, aes(fill=Sex, col=Sex)) +
   coord_sf() +
   theme_minimal()
+
+
+
+
+MMP_BCGov <- st_read(dsn=GISDir, layer="MMP_BCGov_grid_March2024") 
 
 ##############################################################
 #### METADATA EXPLORATION & FORMATTING (END) 
@@ -87,21 +105,30 @@ ggplot() +
 #############################################################
 
 #############################################################
-###--- For shapefiles
-setwd(GISDir) # point to where shapefiles are housed
-list.files(GISDir, pattern='\\.shp$', recursive = TRUE)
-# will list all shapefiles in the folder and sub-folders
-# necessary for uploading individual shapefiles as need pathway (dsn) and shapefile name (layer)
 
-# Load in shapefiles - change the name to something useful, pertaining to the animal/collar
-# example below is if shapefile is in GISDir and shapefile is called BDOW01
-# use the %>% section of the code to simplify shapefile to only pertininent columns
+###--- function to retrieve geodata from BCGW
 
-# shp1 <- st_read(dsn = "./", layer = "BDOW01") %>% select(SymbolID, BeginTime) 
+retrieve_geodata_aoi <- function (ID=ID){
+  aoi.geodata <- bcdc_query_geodata(ID) %>%
+    filter(BBOX(st_bbox(aoi))) %>%
+    collect()
+  aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
+  aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
+  aoi.geodata <- drop_units(aoi.geodata)
+  return(aoi.geodata)
+}
+
+
+MMP_BCGov_grid_March2024
+# biogeoclimatic zones
+# bcdc_search("Biogeoclimatic zone", res_format = "wms")
+# 3: BEC Map (other, wms, kml)
+# ID: f358a53b-ffde-4830-a325-a5a03ff672c3
+# Name: bec-map
+aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
 
 
 ###--- For csv upload
-setwd(InputDir)
 telem <- read.csv("BDOW_TelemData.csv", header=TRUE, 
                   na.strings = c("NA",""), stringsAsFactors = TRUE)
 glimpse(telem) # check columns are coming in as appropriate class
