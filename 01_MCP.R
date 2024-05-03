@@ -5,7 +5,25 @@
 # adapted from script written by genevieve perkins (genevieve.perkins@gov.bc.ca)
 # modified by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 06-Oct-2019
 #####################################################################################
-.libPaths("C:/Program Files/R/R-3.6.0/library")# to ensure reading/writing libraries from C drive (H drive too slow)
+# Copyright 2021 Province of British Columbia
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
+#####################################################################################
+
+R_version <- paste0("R-",version$major,".",version$minor)
+
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
+tz = Sys.timezone() # specify timezone in BC
+
+GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar"
 
 # overall process: 
 #- Define the area of interest per animal; availability/ vs use (MCP)
@@ -16,60 +34,43 @@
 
 # run libraries
 library(bcmaps)
-library(dplyr)
-library(ggplot2)
+library(tidyverse)
 library(Cairo)
 library(sf)
 library(sp)
 library(adehabitatHR)
 
-# set up working directories on H drive
-InputDir <- c("H:/R/Analysis/Generic_HomeRange/Input")
-OutputDir <- c("H:/R/Analysis/Generic_HomeRange/Output")
-GISDir <- c("H:/R/Analysis/Generic_HomeRange/GISDir")
 
 ##############################################################
 #### LOAD and REVIEW DATA (BEGINNING)
 #############################################################
 ## load data into R
-setwd(InputDir)
 load("HR_InputData.RData")
 
 # review spatial object data - check to see if loaded properly
 st_geometry(HR.sf) # currently in 4326 CRS, lat/long
 HR.sf$AnimalID <- as.factor(HR.sf$AnimalID)
-names(HR.sf)
-summary(HR.sf)
+glimpse(HR.sf)
 
 # plot to check
-# check the spread of elk with maped locations 
+# check the spread of fisher with mapped locations 
 bc <- bc_bound()
-SC <- nr_districts() %>% filter(ORG_UNIT %in% c("DCK", "DSQ", "DSC"))
+NRD <- nr_districts() %>% filter(ORG_UNIT %in% c("DCC", "DMH"))
 
-# Plot by AnimalID (29 individuals)
+# Plot by AnimalID (2 individuals in 2 Districts)
 unique(HR.sf$AnimalID)
 ggplot() +
-  geom_sf(data=SC, fill="white", col="gray") +
+  geom_sf(data=NRD, fill="white", col="gray") +
   geom_sf(data=HR.sf, aes(fill=AnimalID, col=AnimalID))+
   coord_sf() +
   theme_minimal() +
   ggtitle("Animal GPS locations")
 
 
-# Plot by Animal_Season (29 animal_seasons)
-unique(HR.sf.AS$Animal_Season)
-ggplot() +
-  geom_sf(data=SC, fill="white", col="gray") +
-  geom_sf(data=HR.sf.AS, aes(fill=Animal_Season, col=Animal_Season))+
-  coord_sf() +
-  theme_minimal() +
-  ggtitle("Animal_Season GPS locations")
-
-
-# Plot by Animal_Year (24 individuals)
+# Plot by Animal_Year (2 individuals)
 unique(HR.sf.AY$Animal_Year)
 ggplot() +
-  geom_sf(data=SC, fill="white", col="gray") +
+  geom_sf(data=NRD, fill="white", col="gray") +
   geom_sf(data=HR.sf.AY, aes(fill=Animal_Year, col=Animal_Year))+
   coord_sf() +
   theme_minimal() +
@@ -84,72 +85,11 @@ ggplot() +
 #############################################################
 
 ###--- Change to a SpatialPointsDataFrame and set to utm (m units)
-HR.sf.AS_utm <- st_transform(HR.sf.AS, crs=26910) # utm and m units
-
-HR.sf.AS_utm$geometry
-HR.sp.AS <- as(HR.sf.AS_utm, "Spatial")
-class(HR.sp.AS)
-
-# Calculate MCPs for each animal season
-names(HR.sp.AS)
-ASmcp.95 <- mcp(HR.sp.AS[,c("Animal_Season")], percent = 95)
-ASmcp.50 <- mcp(HR.sp.AS[,c("Animal_Season")], percent = 50)
-
-# Plot
-plot(HR.sp.AS) # looks similar to before
-plot(ASmcp.95, col = alpha(1:73, 0.5), add = TRUE)
-plot(ASmcp.50, col = alpha(1:73, 0.5), add = TRUE)
-
-# create shapefiles
-# add in meta data covariates
-head(HR.df)
-
-ASmcp.95.sf <- st_as_sf(ASmcp.95)
-colnames(ASmcp.95.sf)[1] <- "Animal_Season" # change id back to Animal_Season
-ASmcp.95.sf <- dplyr::left_join(ASmcp.95.sf, 
-                                HR.df[c("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")], 
-                                by = "Animal_Season") 
-ASmcp.95.sf$HR_Type <- "MCP_95"
-
-ASmcp.50.sf <- st_as_sf(ASmcp.50)
-colnames(ASmcp.50.sf)[1] <- "Animal_Season" # change id back to Animal_Season
-ASmcp.50.sf <- dplyr::left_join(ASmcp.50.sf, 
-                                HR.df[c("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")], 
-                                by = "Animal_Season") 
-ASmcp.50.sf$HR_Type <- "MCP_50"
-
-
-# combine and write as one shapefile
-setwd(GISDir)
-
-ASmcp.sf <- rbind(ASmcp.50.sf,ASmcp.95.sf)
-st_write(ASmcp.sf, "MCP_Animal_Season.shp")
-
-###---
-# Calculate the MCP by including 50 to 100 percent of points
-par(mar=c(1,1,1,1)) # to fit in window
-AS.hrs <- mcp.area(HR.sp.AS[c("Animal_Season")], percent = seq(50, 100, by = 10))
-# visual inspection shows much variation in animals use of home range between 50-100% of points
-AS.hrs # examine dataframe
-AS.hrs.df <- as.data.frame(AS.hrs)
-setwd(OutputDir)
-write.csv(AS.hrs.df, "MCP_HRS_Animal_Season.csv")
-
-##############################################################
-#### RUN MINIMUM CONVEX POLYGON - ANIMAL_SEASON (END)
-#############################################################
-
-
-##############################################################
-#### RUN MINIMUM CONVEX POLYGON - ANIMAL_YEAR (BEGINNING)
-#############################################################
-
-###--- Change to a SpatialPointsDataFrame and set to utm (m units)
 HR.sf.AY_utm <- st_transform(HR.sf.AY, crs=26910) # utm and m units
+HR.sf.AY_utm %>% count(Animal_Year)
 
 HR.sf.AY_utm$geometry
-HR.sp.AY <- as(HR.sf.AY_utm, "Spatial")
-class(HR.sp.AY)
+HR.sp.AY <- as(HR.sf.AY_utm, "Spatial"); class(HR.sp.AY)
 
 # Calculate MCPs for each animal season
 names(HR.sp.AY)
@@ -163,27 +103,29 @@ plot(AYmcp.50, col = alpha(1:73, 0.5), add = TRUE)
 
 # create shapefiles
 # add in meta data covariates
-head(HR.df)
+glimpse(anml)
+glimpse(AYmcp.95.sf)
+anml$Animal_Year <- paste(anml$AnimalID, anml$Cptr_Year, sep="_")
 
 AYmcp.95.sf <- st_as_sf(AYmcp.95)
 colnames(AYmcp.95.sf)[1] <- "Animal_Year" # change id back to Animal_Year
-AYmcp.95.sf <- dplyr::left_join(AYmcp.95.sf, 
-                                HR.df[c("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")], 
-                                by = "Animal_Year") 
+AYmcp.95.sf <- left_join(AYmcp.95.sf, anml %>% dplyr::select("Animal_Year","AnimalID","Sex", "Species","Age_Class"))
 AYmcp.95.sf$HR_Type <- "MCP_95"
 
 AYmcp.50.sf <- st_as_sf(AYmcp.50)
 colnames(AYmcp.50.sf)[1] <- "Animal_Year" # change id back to Animal_Year
-AYmcp.50.sf <- dplyr::left_join(AYmcp.50.sf, 
-                                HR.df[c("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")], 
-                                by = "Animal_Year") 
+AYmcp.50.sf <- left_join(AYmcp.50.sf, anml %>% dplyr::select("Animal_Year","AnimalID","Sex", "Species","Age_Class"))
 AYmcp.50.sf$HR_Type <- "MCP_50"
 
 
 # combine and write as one shapefile
-setwd(GISDir)
 AYmcp.sf <- rbind(AYmcp.50.sf,AYmcp.95.sf)
-st_write(AYmcp.sf, "MCP_Animal_Year.shp")
+st_write(AYmcp.sf, "MCP_Fisher_Year.shp")
+
+ggplot()+
+  geom_sf(data=AYmcp.sf %>% filter(HR_Type=="MCP_95"), aes(col=AnimalID))+
+  geom_sf(data=AYmcp.sf %>% filter(HR_Type=="MCP_50"), aes(col=AnimalID))
+
 
 ###---
 # Calculate the MCP by including 50 to 100 percent of points
@@ -192,11 +134,10 @@ AY.hrs <- mcp.area(HR.sp.AY[c("Animal_Year")], percent = seq(50, 100, by = 10))
 # visual inspection shows much variation in animals use of home range between 50-100% of points
 AY.hrs # examine dataframe
 AY.hrs.df <- as.data.frame(AY.hrs)
-setwd(OutputDir)
 write.csv(AY.hrs.df, "MCP_HRS_Animal_Year.csv")
 
 ##############################################################
-#### RUN MINIMUM CONVEX POLYGON - ANIMAL_YEAR (END)
+#### RUN MINIMUM CONVEX POLYGON - ANIMAL_Year (END)
 #############################################################
 
 
@@ -205,54 +146,28 @@ write.csv(AY.hrs.df, "MCP_HRS_Animal_Year.csv")
 #############################################################
 
 ###--- summarise data
-
+AYmcp.sf$Year <- "2024"
 # Animal Year by Group Type
-AYmcp.sf %>% group_by(HR_Type, Year) %>% 
+AYmcp.sf %>% group_by(HR_Type) %>% 
   summarise(mean = mean(area), se = sd(area)/sqrt(n())) %>% st_drop_geometry()
 
 # HR_Type  Year   mean     se
-# 1 MCP_50   2017 14425. 1128. 
-# 2 MCP_50   2018   276.   21.3
-# 3 MCP_95   2017 46098. 3147. 
-# 4 MCP_95   2018  1108.  108. 
-
-# plot out the MCP area sensitivty by year and group type
+# 1 MCP_50  2024  1981. 1398.
+# 2 MCP_95  2024  6532. 3952.
+# plot out the MCP area sensitivity by year and group type
 setwd(OutputDir)
-AY.mcp.sens <- ggplot(AYmcp.sf, aes(x=as.factor(Year), y=area, color=HR_Type)) +
+AY.mcp.sens <- ggplot(AYmcp.sf, aes(x=as.factor(Sex), y=area, color=HR_Type)) +
   geom_boxplot() +
   scale_color_brewer(palette="Dark2") +
   labs(title="MCP Area Sensitivity", y = "MCP Area (ha)")+
   theme(axis.title.x=element_blank()) +
-  facet_wrap(.~Group.New, scales="free_y")
+  facet_wrap(.~Year, scales="free_y")
 
 Cairo(800, 500, pointsize = 36,
-      file="MCP_Year_Group.png", type="png", bg="white")
+      file="MCP_Year_Sex.png", type="png", bg="white")
 AY.mcp.sens
 dev.off()
 
-# Animal season by Group Type
-ASmcp.sf %>% group_by(HR_Type, Season) %>% 
-  summarise(mean = mean(area), se = sd(area)/sqrt(n())) %>% st_drop_geometry()
-
-# HR_Type Season         mean    se
-# 1 MCP_50  Breeding      3272.  261.
-# 2 MCP_50  Non-Breeding  2408.  197.
-# 3 MCP_95  Breeding     12972.  963.
-# 4 MCP_95  Non-Breeding  8347.  667.
-
-# plot out the MCP area sensitivty by year and group type
-setwd(OutputDir)
-AS.mcp.sens <- ggplot(ASmcp.sf, aes(x=Season, y=area, color=HR_Type)) +
-  geom_boxplot() +
-  scale_color_brewer(palette="Dark2") +
-  labs(title="MCP Area Sensitivity", y = "MCP Area (ha)")+
-  theme(axis.title.x=element_blank()) +
-  facet_wrap(.~Group.New, scales="free_y")
-
-Cairo(800, 500, pointsize = 36,
-      file="MCP_Season_Group.png", type="png", bg="white")
-AS.mcp.sens
-dev.off()
 
 ##############################################################
 #### SUMMARISE MINIMUM CONVEX POLYGON ESTIMATES (END)
@@ -264,7 +179,6 @@ dev.off()
 #############################################################
 
 ###-- Save workspace and move to KDE home range analysis - 02_KDE.R
-setwd(InputDir)
 save.image("01_MCP.RData")
 
 ##############################################################
