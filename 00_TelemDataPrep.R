@@ -32,6 +32,7 @@ GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar"
 # run libraries
 library(tidyverse)  # for plotting, data manipulation, formatting character data
 library(lubridate)  # for date-time conversions
+library(timetk)     # for between time
 library(sf)         # for uploading shapefiles and working with sf objects
 library(bcdata); library(bcmaps)
 library(units)
@@ -155,77 +156,74 @@ aoi.NRD %>% group_by(DISTRICT_NAME) %>% summarise(sum(Area_km2)) %>% st_drop_geo
 #### TELEMETRY DATA EXPLORATION & FORMATTING (BEGINNING) 
 #############################################################
 
-#############################################################
-
-###--- function to retrieve geodata from BCGW
-
-retrieve_geodata_aoi <- function (ID=ID){
-  aoi.geodata <- bcdc_query_geodata(ID) %>%
-    filter(BBOX(st_bbox(aoi))) %>%
-    collect()
-  aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
-  aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
-  aoi.geodata <- drop_units(aoi.geodata)
-  return(aoi.geodata)
-}
-
-
-MMP_BCGov_grid_March2024
-# biogeoclimatic zones
-# bcdc_search("Biogeoclimatic zone", res_format = "wms")
-# 3: BEC Map (other, wms, kml)
-# ID: f358a53b-ffde-4830-a325-a5a03ff672c3
-# Name: bec-map
-aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
-
-
 ###--- For csv upload
-telem <- read.csv("BDOW_TelemData.csv", header=TRUE, 
-                  na.strings = c("NA",""), stringsAsFactors = TRUE)
+# list.files("Input")
+
+telem <- fs::dir_ls(path="Input",regexp = "^Input/GPS", recurse = TRUE) %>%
+  map_dfr(read_csv, col_types = cols(.default = 'c'), .id = "source") %>% type.convert()
+
+telem$AnimalID <- as.factor(word(telem$source, 2, sep="\\_"))
+telem$Date_PST <- ymd(telem$`RTC-date`, tz=tz) # RTC is real-time clock that we programmed
+telem$Time_PST <- hms(telem$`RTC-time`)
+telem$DateTime_PST <- ymd_hms(paste(telem$Date_PST, telem$Time_PST, tz=tz))
+
+
 glimpse(telem) # check columns are coming in as appropriate class
 head(telem) # check that data is reading correctly
-summary(telem) # check if spelling inconsistencies or NAs
+
 #############################################################
+###--- clean data
+# remove telem locations outside of range when on animals
+anml %>% group_by(AnimalID) %>% summarise(min(Rls_Datep))
 
-###--- check data quality and remove any objectional rows
+
+telem <- telem %>% mutate(time.keep = case_when(AnimalID == "35060" & Date_PST < '2024-02-19 PST' ~ "remove",
+                                       AnimalID == "35060" & Date_PST > '2024-04-01 PST' ~ "remove",
+                                       AnimalID == "94092" & Date_PST < '2024-02-17 PST' ~ "remove",
+                                       AnimalID == "94092" & Date_PST > '2024-04-01 PST' ~ "remove",
+                                       TRUE ~ "keep"))
+
+telem %>% group_by(time.keep, AnimalID) %>% summarise(min(Date_PST), max(Date_PST))
+
+telem <- telem %>% filter(time.keep=="keep")
+
+validGPS <- telem %>% group_by(AnimalID) %>% count(Status)
+2915/(1213+2915); 3754/(495+3754)
+# 35060 had 71% of locations as valid, 94092 had 88% valid locations (within the time period in the field)
+
+telem <- telem %>% filter(Status=="Valid")
+
+###--- check data quality and remove any objectionable rows
+
+
 # latitude coordinate off - delete that row
-telem <- telem[order(telem$Latitude),]
-tail(telem) # only 1 latitiude coordinate off (probably a typo where 9 should be 5 but delete to be safe) 
+tail(telem[order(telem$Latitude),])
+tail(telem) # only 2 latitude coordinates off (one coord for each animal) 
 # otherwise data was cleaned prior to uploading and is good to go
-
 # use the CRS for lat/long and WGS84
-telem.sf <- st_as_sf(telem[telem$Latitude<90,], coords=c("Longitude","Latitude"), crs=4326) %>% 
-  select(USFW.Band, Date, Time, Group) %>% rename(AnimalID = USFW.Band) # selects only specific columns and chagnes the name to match column name in anml object
+telem %>% summarise(min(Longitude))
+telem.sf <- st_as_sf(telem %>% filter(Latitude < 58) %>% filter(Latitude > 50), coords=c("Longitude","Latitude"), crs=4326) 
 
-summary(telem.sf)
-# create new Group names - revise as appropriate
-telem.sf$Group.New <- as.factor(ifelse(grepl("Captive", telem.sf$Group),"Captive",
-                                       ifelse(grepl("Relocated", telem.sf$Group), "Relocated",
-                                              ifelse(grepl("Control", telem.sf$Group), "Control",
-                                                     ifelse(grepl("Resident", telem.sf$Group), "Resident", NA)))))
+ggplot()+
+  geom_sf(data=telem.sf, aes(col=AnimalID))
 
-table(telem.sf$Group, telem.sf$Group.New) # check that grouping worked
+# a few points are off
+glimpse(telem)
+sub <- telem %>% filter(Sats %in% c("04-Apr","05-May","06-Jun","07-Jul","08-Aug")) %>%
+  filter(Latitude < 51.9) %>% filter(Longitude < -121.5)
+sub.sf <- st_as_sf(sub, coords=c("Longitude","Latitude"), crs=4326) 
+
+
+ggplot()+
+  geom_sf(data=sub.sf, aes(col=AnimalID))
 
 # format dates for R
-telem.sf$Date.Time <- paste(telem.sf$Date, telem.sf$Time, sep=" ")
-telem.sf$Date.Timep <- as.POSIXct(strptime(telem.sf$Date.Time, format = "%Y%m%d %H:%M:%S"))
-telem.sf$Year <- year(telem.sf$Date.Timep)
-telem.sf$Month <- month(telem.sf$Date.Timep)
-telem.sf$Day.j <- julian(telem.sf$Date.Timep) # Julian day
+telem.sf <- sub.sf
+telem.sf$Year <- year(telem.sf$DateTime_PST)
+telem.sf$Month <- month(telem.sf$DateTime_PST)
+telem.sf$Day.j <- julian(telem.sf$DateTime_PST) # Julian day
 
-glimpse(telem.sf)
-summary(telem.sf)
-
-# plot to check
-ggplot() +
-  geom_sf(data = telem.sf, aes(fill=Group.New, col=Group.New)) +
-  coord_sf() +
-  theme_minimal()
-
-ggplot() +
-  geom_sf(data = telem.sf, aes(fill=as.factor(Year), col=as.factor(Year))) +
-  coord_sf() +
-  theme_minimal()
+telem.sf <- telem.sf %>% filter(!is.na(Month))
 
 ggplot() +
   geom_sf(data = telem.sf, aes(fill=AnimalID, col=AnimalID)) +
@@ -235,19 +233,6 @@ ggplot() +
 
 # looks good - all plotting in general area
 
-###--- Create Season (breeding) dates
-# check date range by year for telemetry data
-telem.sf %>% group_by(Year) %>% summarise(min(Date.Timep), max(Date.Timep)) %>% st_drop_geometry()
-# Year `min(Date.Timep)`   `max(Date.Timep)`  
-# 1  2017 2017-04-21 09:59:28 2017-10-31 10:01:36
-# 2  2018 2018-03-11 18:40:00 2018-10-25 02:01:36
-
-# Breeding = Apr 1 to Sep 30; Non-Breeding = Oct 1 - Mar 30
-telem.sf$Season <-as.factor(ifelse(telem.sf$Month < 4 | telem.sf$Month > 9, "Non-Breeding",
-                                 ifelse(telem.sf$Month > 3 | telem.sf$Month < 10, "Breeding", NA)))
-
-table(telem.sf$Month, telem.sf$Season) # check to make sure Seasons are pulling correct dates
-# pulling dates correctly, note that telemetry data is minimal in non-breeding season
 
 ###--- check number of fixes per animal / day / etc
 # Check the multiple counts of animals per day
