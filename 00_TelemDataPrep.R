@@ -32,7 +32,6 @@ GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar"
 # run libraries
 library(tidyverse)  # for plotting, data manipulation, formatting character data
 library(lubridate)  # for date-time conversions
-library(timetk)     # for between time
 library(sf)         # for uploading shapefiles and working with sf objects
 library(bcdata); library(bcmaps)
 library(units)
@@ -195,7 +194,6 @@ telem <- telem %>% filter(Status=="Valid")
 
 ###--- check data quality and remove any objectionable rows
 
-
 # latitude coordinate off - delete that row
 tail(telem[order(telem$Latitude),])
 tail(telem) # only 2 latitude coordinates off (one coord for each animal) 
@@ -209,16 +207,16 @@ ggplot()+
 
 # a few points are off
 glimpse(telem)
-sub <- telem %>% filter(Sats %in% c("04-Apr","05-May","06-Jun","07-Jul","08-Aug")) %>%
+prelim <- telem %>% filter(Sats %in% c("04-Apr","05-May","06-Jun","07-Jul","08-Aug")) %>%
   filter(Latitude < 51.9) %>% filter(Longitude < -121.5)
-sub.sf <- st_as_sf(sub, coords=c("Longitude","Latitude"), crs=4326) 
+prelim.sf <- st_as_sf(prelim, coords=c("Longitude","Latitude"), crs=4326) 
 
 
 ggplot()+
-  geom_sf(data=sub.sf, aes(col=AnimalID))
+  geom_sf(data=prelim.sf, aes(col=AnimalID))
 
 # format dates for R
-telem.sf <- sub.sf
+telem.sf <- prelim.sf
 telem.sf$Year <- year(telem.sf$DateTime_PST)
 telem.sf$Month <- month(telem.sf$DateTime_PST)
 telem.sf$Day.j <- julian(telem.sf$DateTime_PST) # Julian day
@@ -302,14 +300,15 @@ p7 <- ggplot(id.jdate,aes(x = as.factor(Year), count)) +
 ##############################################################
 #### MERGE INTO ONE (FULL) SF OBJECT (BEGINNING)
 #############################################################
-head(anml)
+glimpse(anml)
+anml$AnimalID <- as.factor(anml$AnimalID)
 head(telem.sf)
 
-HR.sf <- left_join(telem.sf %>% select(AnimalID, Group.New, Date.Timep, Year, Month, Day.j, Season),
+HR.sf <- left_join(telem.sf %>% select(AnimalID, DateTime_PST, Year, Month, Day.j),
                    anml %>% select(-Cptr_Date, -Rls_Date), by = "AnimalID")
 
 glimpse(HR.sf)
-summary(HR.sf) # not all animals in both databases, 412 NAs
+summary(HR.sf)
 
 # drop levels if no entries
 HR.sf$Species <- droplevels(HR.sf$Species)
@@ -332,44 +331,28 @@ HR.df <- HR.sf %>% st_drop_geometry() # create non-spatial attribute table for j
 #############################################################
 
 ######################################################################
-#### SUBSET DATA TO ANIMAL_SEASON AND ANIMAL_YEAR MIN OBS (BEGINNING) 
+#### SUBSET DATA TO ANIMAL_YEAR MIN OBS (BEGINNING) 
 #####################################################################
 # need to drop animals with less than minimum number of observations
 summary(HR.sf)
-table(HR.sf$Year, HR.sf$Season)
-# Breeding Non-Breeding
-# 2017     1071          218
-# 2018     1156          191
+table(HR.sf$Year, HR.sf$Sex)
 
 ###--- Calculate MCPs for each animal, annually and seasonally (i.e.,combining years but separating seasons)
 # group into seasons for each animal 
-HR.sf$Animal_Season <- as.factor(paste(HR.sf$AnimalID, HR.sf$Season, sep="_"))
 HR.sf$Animal_Year <- as.factor(paste(HR.sf$AnimalID, as.factor(HR.sf$Year), sep="_"))
 
-as.data.frame(HR.sf %>% group_by(AnimalID) %>% count(Season, sort=TRUE)) 
-# 43 unique animal-seasons but only 24 with >= 50 obs, 29 with >= 25 obs
 as.data.frame(HR.sf %>% group_by(AnimalID) %>% count(Year, sort=TRUE)) 
-# 34 unique animal-years but only 20 with >= 50 obs, 24 with >= 25 obs
+# 2 unique animal-years and each with sufficient n
 
 ###--- DECISION POINT - how many obs minimum for HR estimate?
-# remove animals with < 25 points per Animal_Season
-head(HR.sf)
-HR.sf.AS <- HR.sf
-HR.sf.AS <- HR.sf.AS[HR.sf.AS$Animal_Season %in% names(table(HR.sf.AS$Animal_Season)) [table(HR.sf.AS$Animal_Season) >= 25], ]
-HR.sf.AS$Animal_Season <- droplevels(HR.sf.AS$Animal_Season)
-nrow(HR.sf) - nrow(HR.sf.AS) # dropped 145 points
-
 # remove animals with < 25 points per Animal_Year
 HR.sf.AY <- HR.sf
 HR.sf.AY <- HR.sf.AY[HR.sf.AY$Animal_Year %in% names(table(HR.sf.AY$Animal_Year)) [table(HR.sf.AY$Animal_Year) >= 25], ]
 HR.sf.AY$Animal_Year <- droplevels(HR.sf.AY$Animal_Year)
-nrow(HR.sf) - nrow(HR.sf.AY) # dropped 108 points
-
-as.data.frame(HR.sf.AS %>% group_by(AnimalID) %>% count(Season, sort=TRUE)) # 0 animal-seasons below 25 obs; 29 unique animal-seasons
-as.data.frame(HR.sf.AY %>% group_by(AnimalID) %>% count(Year, sort=TRUE)) # 0 animal-seasons below 25 obs; 24 unique animal-seasons
+nrow(HR.sf) - nrow(HR.sf.AY) # did not remove any  points
 
 ######################################################################
-#### SUBSET DATA TO ANIMAL_SEASON AND ANIMAL_YEAR MIN OBS (END) 
+#### SUBSET DATA TO ANIMAL_YEAR MIN OBS (END) 
 #####################################################################
 
 ##############################################################
@@ -377,7 +360,6 @@ as.data.frame(HR.sf.AY %>% group_by(AnimalID) %>% count(Year, sort=TRUE)) # 0 an
 #############################################################
 
 ###-- Save workspace and move to home range analysis - 01_MCP.R
-setwd(InputDir)
 save.image("00_TelemDataPrep.RData")
 # load("00_TelemDataPrep.RData")
 
