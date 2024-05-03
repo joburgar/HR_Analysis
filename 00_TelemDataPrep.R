@@ -146,6 +146,10 @@ aoi.UWR %>% group_by(SPECIES_1) %>% summarise(sum(Area_km2)) %>% st_drop_geometr
 # Name: natural-resource-nr-district
 aoi.NRD <- retrieve_geodata_aoi(ID = "0bc73892-e41f-41d0-8d8e-828c16139337")
 aoi.NRD %>% group_by(DISTRICT_NAME) %>% summarise(sum(Area_km2)) %>% st_drop_geometry()
+NRD <- nr_districts() %>% filter(ORG_UNIT %in% c("DCC", "DMH"))
+
+ggplot()+
+  geom_sf(data=aoi.NRD, aes(fill=ORG_UNIT))
 
 ##############################################################
 #### METADATA EXPLORATION & FORMATTING (END) 
@@ -177,7 +181,7 @@ anml %>% group_by(AnimalID) %>% summarise(min(Rls_Datep))
 
 
 telem <- telem %>% mutate(time.keep = case_when(AnimalID == "35060" & Date_PST < '2024-02-19 PST' ~ "remove",
-                                       AnimalID == "35060" & Date_PST > '2024-04-01 PST' ~ "remove",
+                                       AnimalID == "35060" & Date_PST > '2024-03-19 PST' ~ "remove",
                                        AnimalID == "94092" & Date_PST < '2024-02-17 PST' ~ "remove",
                                        AnimalID == "94092" & Date_PST > '2024-04-01 PST' ~ "remove",
                                        TRUE ~ "keep"))
@@ -187,8 +191,8 @@ telem %>% group_by(time.keep, AnimalID) %>% summarise(min(Date_PST), max(Date_PS
 telem <- telem %>% filter(time.keep=="keep")
 
 validGPS <- telem %>% group_by(AnimalID) %>% count(Status)
-2915/(1213+2915); 3754/(495+3754)
-# 35060 had 71% of locations as valid, 94092 had 88% valid locations (within the time period in the field)
+1922/(958+1922); 3754/(495+3754)
+# 35060 had 67% of locations as valid, 94092 had 88% valid locations (within the time period in the field)
 
 telem <- telem %>% filter(Status=="Valid")
 
@@ -213,6 +217,7 @@ prelim.sf <- st_as_sf(prelim, coords=c("Longitude","Latitude"), crs=4326)
 
 
 ggplot()+
+  geom_sf(data=NRD)+
   geom_sf(data=prelim.sf, aes(col=AnimalID))
 
 # format dates for R
@@ -224,6 +229,7 @@ telem.sf$Day.j <- julian(telem.sf$DateTime_PST) # Julian day
 telem.sf <- telem.sf %>% filter(!is.na(Month))
 
 ggplot() +
+  geom_sf(data = NRD)+
   geom_sf(data = telem.sf, aes(fill=AnimalID, col=AnimalID)) +
   facet_wrap(~Year) +
   theme(legend.position = "bottom") +
@@ -336,7 +342,8 @@ HR.df <- HR.sf %>% st_drop_geometry() # create non-spatial attribute table for j
 # need to drop animals with less than minimum number of observations
 summary(HR.sf)
 table(HR.sf$Year, HR.sf$Sex)
-
+#      F    M
+# 2024 1338 2630
 ###--- Calculate MCPs for each animal, annually and seasonally (i.e.,combining years but separating seasons)
 # group into seasons for each animal 
 HR.sf$Animal_Year <- as.factor(paste(HR.sf$AnimalID, as.factor(HR.sf$Year), sep="_"))

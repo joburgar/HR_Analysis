@@ -152,10 +152,10 @@ AYmcp.sf %>% group_by(HR_Type) %>%
   summarise(mean = mean(area), se = sd(area)/sqrt(n())) %>% st_drop_geometry()
 
 # HR_Type  Year   mean     se
-# 1 MCP_50  2024  1981. 1398.
-# 2 MCP_95  2024  6532. 3952.
+# MCP_50  2156. 1223.
+# MCP_95  6836. 3648.
 # plot out the MCP area sensitivity by year and group type
-setwd(OutputDir)
+
 AY.mcp.sens <- ggplot(AYmcp.sf, aes(x=as.factor(Sex), y=area, color=HR_Type)) +
   geom_boxplot() +
   scale_color_brewer(palette="Dark2") +

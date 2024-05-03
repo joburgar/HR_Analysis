@@ -5,7 +5,26 @@
 # adapted from script written by genevieve perkins (genevieve.perkins@gov.bc.ca)
 # modified by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 06-Oct-2019
 #####################################################################################
-.libPaths("C:/Program Files/R/R-3.6.0/library")# to ensure reading/writing libraries from C drive (H drive too slow)
+#####################################################################################
+# Copyright 2021 Province of British Columbia
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
+#####################################################################################
+
+R_version <- paste0("R-",version$major,".",version$minor)
+
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
+tz = Sys.timezone() # specify timezone in BC
+
+GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar"
 
 # overall process: 
 #- Define the area of interest per animal; availability/ vs use (MCP)
@@ -16,60 +35,41 @@
 
 # run libraries
 library(bcmaps)
-library(dplyr)
-library(ggplot2)
+library(tidyverse)
 library(Cairo)
 library(sf)
 library(sp)
 library(adehabitatHR)
 
-# set up working directories on H drive
-InputDir <- c("H:/R/Analysis/Generic_HomeRange/Input")
-OutputDir <- c("H:/R/Analysis/Generic_HomeRange/Output")
-GISDir <- c("H:/R/Analysis/Generic_HomeRange/GISDir")
-
 ##############################################################
 #### LOAD and REVIEW DATA (BEGINNING)
 #############################################################
 ## load data into R
-setwd(InputDir)
 load("HR_InputData.RData")
 
 # review spatial object data - check to see if loaded properly
 st_geometry(HR.sf) # currently in 4326 CRS, lat/long
 HR.sf$AnimalID <- as.factor(HR.sf$AnimalID)
-names(HR.sf)
-summary(HR.sf)
+glimpse(HR.sf)
 
 # plot to check
 # check the spread of animals with maped locations 
 bc <- bc_bound()
-SC <- nr_districts() %>% filter(ORG_UNIT %in% c("DCK", "DSQ", "DSC")) # revise as appropriate to study area
+NRD <- nr_districts() %>% filter(ORG_UNIT %in% c("DCC", "DMH"))
 
 # Plot by AnimalID
-unique(HR.sf$AnimalID) #29 individuals
+unique(HR.sf$AnimalID) #2 individuals
 ggplot() +
-  geom_sf(data=SC, fill="white", col="gray") +
+  geom_sf(data=NRD, fill="white", col="gray") +
   geom_sf(data=HR.sf, aes(fill=AnimalID, col=AnimalID))+
   coord_sf() +
   theme_minimal() +
   ggtitle("Animal GPS locations")
 
-
-# Plot by Animal_Season
-unique(HR.sf.AS$Animal_Season) # 29 animal_seasons
-ggplot() +
-  geom_sf(data=SC, fill="white", col="gray") +
-  geom_sf(data=HR.sf.AS, aes(fill=Animal_Season, col=Animal_Season))+
-  coord_sf() +
-  theme_minimal() +
-  ggtitle("Animal_Season GPS locations")
-
-
 # Plot by Animal_Year
-unique(HR.sf.AY$Animal_Year) # 24 individuals
+unique(HR.sf.AY$Animal_Year) # 2 individuals
 ggplot() +
-  geom_sf(data=SC, fill="white", col="gray") +
+  geom_sf(data=NRD, fill="white", col="gray") +
   geom_sf(data=HR.sf.AY, aes(fill=Animal_Year, col=Animal_Year))+
   coord_sf() +
   theme_minimal() +
@@ -89,57 +89,6 @@ ggplot() +
 # the reference bandwith option supposes that the UD is a bivariate normal distribution and will overestimate if the animal has multiple activity centres
 # first try with "href", not specifying grid (need to specify extent as default not working with 95%)
 
-###--- ANIMAL_SEASON 
-st_geometry(HR.sf.AS)
-HR.sf.AS_utm <- st_transform(HR.sf.AS, crs=26910) # utm and m units
-
-HR.sf.AS_utm$geometry
-HR.sp.AS <- as(HR.sf.AS_utm, "Spatial")
-class(HR.sp.AS)
-
-kde1.AS  <- kernelUD(HR.sp.AS[c("Animal_Season")], h = "href", kern = c("bivnorm"), extent = 2) # default grid and extent
-
-length(kde1.AS) # 29 Animal_Season
-
-# create vector listing the h-value for each KDE
-kde1.AS_href <- rep(NA, length(kde1.AS))
-for (i in 1:length(kde1.AS_href )){ 
-  i.href <- kde1.AS[[i]]@h$h
-  kde1.AS_href[i] <- i.href
-}
-
-min(kde1.AS_href); max(kde1.AS_href); mean(kde1.AS_href)
-# [1] 105.0504
-# [1] 9484.046
-# [1] 1546.877
-# huge variation in href depending on Animal_Season
-
-# create KDEs
-ver95 <- getverticeshr(kde1.AS,95) ;   ver95.sf<- st_as_sf(ver95)
-ver50 <- getverticeshr(kde1.AS,50) ;   ver50.sf<- st_as_sf(ver50)
-
-plot(st_geometry(ver95.sf),col = "red")
-plot(st_geometry(ver50.sf),col = "yellow", add = TRUE)
-plot(HR.sp.AS, pch = 1, size = 0.5, add = TRUE)     # Add points 
-
-# add in meta-data and then export shapefiles
-colnames(ver95.sf)[1] <- "Animal_Season"
-ver95.sf <- dplyr::left_join(ver95.sf, 
-                             unique(HR.df %>% dplyr::select("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")), 
-                             by = "Animal_Season")
-ver95.sf$HR_Type <- "KDE_95"
-
-colnames(ver50.sf)[1] <- "Animal_Season"
-ver50.sf <- dplyr::left_join(ver50.sf, 
-                             unique(HR.df %>% dplyr::select("Animal_Season","AnimalID","Group.New","Season","Species","Sex", "Age_Class")), 
-                             by = "Animal_Season") 
-ver50.sf$HR_Type <- "KDE_50"
-
-ver1AS.sf <- rbind(ver50.sf,ver95.sf)
-
-setwd(GISDir)
-st_write(ver1AS.sf,"KDE_Animal_Season_href.shp")
-
 ###--- ANIMAL_YEAR 
 st_geometry(HR.sf.AY)
 HR.sf.AY_utm <- st_transform(HR.sf.AY, crs=26910) # utm and m units
@@ -150,7 +99,7 @@ class(HR.sp.AY)
 
 kde1.AY  <- kernelUD(HR.sp.AY[c("Animal_Year")], h = "href", kern = c("bivnorm"), extent = 2) # default grid and extent
 
-length(kde1.AY) # 24 Animal_Year
+length(kde1.AY) # 2 Animal_Year
 
 # create vector listing the h-value for each KDE
 kde1.AY_href <- rep(NA, length(kde1.AY))
@@ -160,10 +109,10 @@ for (i in 1:length(kde1.AY_href )){
 }
 
 min(kde1.AY_href); max(kde1.AY_href); mean(kde1.AY_href)
-# [1] 105.0504
-# [1] 13872.24
-# [1] 1835.504
-# huge variation in href depending on Animal_Year
+# [1] 603.8
+# [1] 789.1566
+# [1] 696.4783
+#  not much variation in href depending on Animal_Year
 
 # create KDEs
 ver95 <- getverticeshr(kde1.AY,95) ;   ver95.sf<- st_as_sf(ver95)
@@ -174,22 +123,25 @@ plot(st_geometry(ver50.sf),col = "yellow", add = TRUE)
 plot(HR.sp.AY, pch = 1, size = 0.5, add = TRUE)     # Add points 
 
 # add in meta-data and then export shapefiles
+anml$Animal_Year <- paste(anml$AnimalID, anml$Cptr_Year, sep="_")
+
 colnames(ver95.sf)[1] <- "Animal_Year"
-ver95.sf <- dplyr::left_join(ver95.sf, 
-                             unique(HR.df %>% dplyr::select("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")), 
-                             by = "Animal_Year") 
+ver95.sf <- left_join(ver95.sf, anml %>% dplyr::select("Animal_Year","AnimalID","Sex", "Species","Age_Class"))
 ver95.sf$HR_Type <- "KDE_95"
 
 colnames(ver50.sf)[1] <- "Animal_Year"
-ver50.sf <- dplyr::left_join(ver50.sf, 
-                             unique(HR.df %>% dplyr::select("Animal_Year","AnimalID","Group.New","Year","Species","Sex", "Age_Class")), 
-                             by = "Animal_Year") 
+ver50.sf <- dplyr::left_join(ver50.sf, anml %>% dplyr::select("Animal_Year","AnimalID","Sex", "Species","Age_Class")) 
 ver50.sf$HR_Type <- "KDE_50"
 
 ver1AY.sf <- rbind(ver50.sf,ver95.sf)
 
-setwd(GISDir)
 st_write(ver1AY.sf,"KDE_Animal_Year_href.shp")
+
+
+st_write(ver1AY.sf %>% filter(AnimalID==35060),"KDE_Fisher_35060.shp")
+
+ggplot()+
+  geom_sf(data=ver1AY.sf %>% filter(AnimalID==35060))
 
 # for housekeeping and to reduce space, remove kde objects once output has been saved
 rm(kde1.AS, kde1.AY)
